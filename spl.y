@@ -117,10 +117,159 @@ extern void setProgAST(block_t t);
 
 %%
  /* Write your grammar rules below and before the next %% */
+program: block "." {setProgAST($1); } ;
 
+block: "begin" constDecls varDecls procDecls stmts "end" {
+    $$ = ast_block($1, $2, $3, $4, $5); 
+} ;
 
+constDecls: empty  {
+    $$ = ast_const_decls_empty($1); 
+}
+| constDecl constDecls {
+    $$ = ast_const_decls($1, $2); 
+} ;
 
+constDecl: constsym constDefList semisym {
+    $$ = ast_const_decl($2); 
+} ;
 
+constDefList: constDef {
+    $$ = ast_const_def_list_singleton($1); 
+}
+| constDefList commasym constDef {
+    $$ = ast_const_def_list($1, $3); 
+} ;
+
+constDef: identsym eqsym numbersym {
+    $$ = ast_const_def($1, $3); 
+} ;
+
+varDecls: empty  {
+    $$ = ast_var_decls_empty($1); 
+}
+| varDecl varDecls {
+    $$ = ast_var_decls($1, $2); 
+} ;
+
+varDecl: varsym identList semisym {
+    $$ = ast_var_decl($2); 
+} ;
+
+identList: identsym {
+    $$ = ast_ident_list_singleton($1); 
+}
+| identList commasym identsym {
+    $$ = ast_ident_list($1, $3); 
+} ;
+
+procDecls: empty {
+    $$ = ast_proc_decls_empty($1); 
+}
+| procDecl procDecls {
+    $$ = ast_proc_decls($1, $2); 
+} ;
+
+procDecl: procsym identsym block semisym {
+    $$ = ast_proc_decl($2, $3); 
+} ;
+
+stmts: empty {
+    $$ = ast_stmts_empty($1); 
+}
+| stmtList {
+    $$ = $1; 
+} ;
+
+stmtList: stmt {
+    $$ = ast_stmt_list_singleton($1); 
+}
+| stmtList semisym stmt {
+    $$ = ast_stmt_list($1, $3); 
+} ;
+
+stmt: assignStmt
+| callStmt
+| ifStmt
+| whileStmt
+| readStmt
+| printStmt
+| blockStmt ;
+
+assignStmt: identsym becomessym expr {
+    $$ = ast_stmt_assign($1, $3); 
+} ;
+
+callStmt: callsym identsym {
+    $$ = ast_stmt_call($2); 
+} ;
+
+ifStmt: ifsym condition thensym stmts elsesym stmts endsym {
+    $$ = ast_if_then_else_stmt($2, $4, $6); 
+}
+| ifsym condition thensym stmts endsym {
+    $$ = ast_if_then_else_stmt($2, $4, NULL); 
+} ;
+
+whileStmt: whilesym condition dosym stmts endsym {
+    $$ = ast_while_stmt($2, $4); 
+} ;
+
+readStmt: readsym identsym {
+    $$ = ast_read_stmt($2); 
+} ;
+
+printStmt: printsym expr {
+    $$ = ast_print_stmt($2); 
+} ;
+
+blockStmt: block {
+    $$ = $1; 
+} ;
+
+condition: dbCondition
+| relOpCondition ;
+
+dbCondition: divisiblesym expr bysym expr {
+    $$ = ast_db_condition($2, $4); 
+} ;
+
+relOpCondition: expr relOp expr {
+    $$ = ast_rel_op_condition($1, $2, $3); 
+} ;
+
+relOp: eqeqsym
+| neqsym
+| ltsym
+| leqsym
+| gtsym
+| geqsym ;
+
+expr: term
+| expr plussym term {
+    $$ = create_bin_op($1, "+", $3); 
+}
+| expr minussym term {
+    $$ = create_bin_op($1, "-", $3); 
+} ;
+
+term: factor
+| term multsym factor {
+    $$ = create_bin_op($1, "*", $3); 
+}
+| term divsym factor {
+    $$ = create_bin_op($1, "/", $3); 
+} ;
+
+factor: identsym {
+    $$ = ast_expr_ident($1); 
+}
+| numbersym {
+    $$ = ast_expr_number($1); 
+}
+| lparensym expr rparensym {
+    $$ = $2; 
+} ;
 
 %%
 
