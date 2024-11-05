@@ -1,4 +1,4 @@
- /* $Id: bison_spl_y_top.y,v 1.2 2024/10/09 18:18:55 leavens Exp $ */
+/* $Id: bison_spl_y_top.y,v 1.2 2024/10/09 18:18:55 leavens Exp $ */
 
 %code top {
 #include <stdio.h>
@@ -6,13 +6,14 @@
 
 %code requires {
 
- /* Including "ast.h" must be at the top, to define the AST type */
+/* Including "ast.h" must be at the top, to define the AST type */
 #include "ast.h"
 #include "machine_types.h"
 #include "parser_types.h"
 #include "lexer.h"
+#include "file_location.h"
 
-    /* Report an error to the user on stderr */
+/* Report an error to the user on stderr */
 extern void yyerror(const char *filename, const char *msg);
 
 }    /* end of %code requires */
@@ -21,8 +22,8 @@ extern void yyerror(const char *filename, const char *msg);
 %define parse.lac full
 %define parse.error detailed
 
- /* the following passes file_name to yyerror,
-    and declares it as an formal parameter of yyparse. */
+/* the following passes file_name to yyerror,
+   and declares it as a formal parameter of yyparse. */
 %parse-param { char const *file_name }
 
 %token <ident> identsym
@@ -79,9 +80,7 @@ extern void yyerror(const char *filename, const char *msg);
 %type <proc_decls> procDecls
 %type <proc_decl> procDecl
 
-
 %type <stmts> stmts
-%type <empty> empty
 %type <stmt_list> stmtList
 %type <stmt> stmt
 %type <assign_stmt> assignStmt
@@ -93,8 +92,6 @@ extern void yyerror(const char *filename, const char *msg);
 %type <block_stmt> blockStmt
 
 %type <condition> condition
-%type <db_condition> dbCondition
-%type <rel_op_condition> relOpCondition
 %type <token> relOp
 
 %type <expr> expr
@@ -104,175 +101,324 @@ extern void yyerror(const char *filename, const char *msg);
 %start program
 
 %code {
- /* extern declarations provided by the lexer */
+
+/* Extern declarations provided by the lexer */
 extern int yylex(void);
 
- /* The AST for the program, set by the semantic action 
-    for the nonterminal program. */
+/* The AST for the program, set by the semantic action 
+   for the nonterminal program. */
 block_t progast; 
 
- /* Set the program's ast to be t */
+/* Set the program's ast to be t */
 extern void setProgAST(block_t t);
+
+/* Helper function to create a file_location* from YYLTYPE */
+static file_location* make_file_location(const char *file_name, YYLTYPE loc) {
+    return file_location_make(file_name, loc.first_line);
+}
+
 }
 
 %%
- /* Write your grammar rules below and before the next %% */
-program: block "." {setProgAST($1); } ;
 
-block: "begin" constDecls varDecls procDecls stmts "end" {
-    $$ = ast_block($1, $2, $3, $4, $5); 
-} ;
+/* Grammar rules start here */
 
-constDecls: empty  {
-    $$ = ast_const_decls_empty($1); 
-}
-| constDecl constDecls {
-    $$ = ast_const_decls($1, $2); 
-} ;
+program:
+    block periodsym
+    {
+        setProgAST($1);
+    }
+    ;
 
-constDecl: constsym constDefList semisym {
-    $$ = ast_const_decl($2); 
-} ;
+block:
+    beginsym constDecls varDecls procDecls stmts endsym
+    {
+        $$ = ast_block($1, $2, $3, $4, $5);
+    }
+    ;
 
-constDefList: constDef {
-    $$ = ast_const_def_list_singleton($1); 
-}
-| constDefList commasym constDef {
-    $$ = ast_const_def_list($1, $3); 
-} ;
+constDecls:
+    constDecls constDecl
+    {
+        $$ = ast_const_decls($1, $2);
+    }
+    | %empty
+    {
+        $$ = ast_const_decls_empty(ast_empty(make_file_location(file_name, @$)));
+    }
+    ;
 
-constDef: identsym eqsym numbersym {
-    $$ = ast_const_def($1, $3); 
-} ;
+constDecl:
+    constsym constDefList semisym
+    {
+        $$ = ast_const_decl($2);
+    }
+    ;
 
-varDecls: empty  {
-    $$ = ast_var_decls_empty($1); 
-}
-| varDecl varDecls {
-    $$ = ast_var_decls($1, $2); 
-} ;
+constDefList:
+    constDefList commasym constDef
+    {
+        $$ = ast_const_def_list($1, $3);
+    }
+    | constDef
+    {
+        $$ = ast_const_def_list_singleton($1);
+    }
+    ;
 
-varDecl: varsym identList semisym {
-    $$ = ast_var_decl($2); 
-} ;
+constDef:
+    identsym eqsym numbersym
+    {
+        $$ = ast_const_def($1, $3);
+    }
+    ;
 
-identList: identsym {
-    $$ = ast_ident_list_singleton($1); 
-}
-| identList commasym identsym {
-    $$ = ast_ident_list($1, $3); 
-} ;
+varDecls:
+    varDecls varDecl
+    {
+        $$ = ast_var_decls($1, $2);
+    }
+    | %empty
+    {
+        $$ = ast_var_decls_empty(ast_empty(make_file_location(file_name, @$)));
+    }
+    ;
 
-procDecls: empty {
-    $$ = ast_proc_decls_empty($1); 
-}
-| procDecl procDecls {
-    $$ = ast_proc_decls($1, $2); 
-} ;
+varDecl:
+    varsym identList semisym
+    {
+        $$ = ast_var_decl($2);
+    }
+    ;
 
-procDecl: procsym identsym block semisym {
-    $$ = ast_proc_decl($2, $3); 
-} ;
+identList:
+    identList commasym identsym
+    {
+        $$ = ast_ident_list($1, $3);
+    }
+    | identsym
+    {
+        $$ = ast_ident_list_singleton($1);
+    }
+    ;
 
-stmts: empty {
-    $$ = ast_stmts_empty($1); 
-}
-| stmtList {
-    $$ = $1; 
-} ;
+procDecls:
+    procDecls procDecl
+    {
+        $$ = ast_proc_decls($1, $2);
+    }
+    | %empty
+    {
+        $$ = ast_proc_decls_empty(ast_empty(make_file_location(file_name, @$)));
+    }
+    ;
 
-stmtList: stmt {
-    $$ = ast_stmt_list_singleton($1); 
-}
-| stmtList semisym stmt {
-    $$ = ast_stmt_list($1, $3); 
-} ;
+procDecl:
+    procsym identsym block semisym
+    {
+        $$ = ast_proc_decl($2, $3);
+    }
+    ;
 
-stmt: assignStmt
-| callStmt
-| ifStmt
-| whileStmt
-| readStmt
-| printStmt
-| blockStmt ;
+stmts:
+    stmtList
+    {
+        $$ = ast_stmts($1);
+    }
+    | %empty
+    {
+        $$ = ast_stmts_empty(ast_empty(make_file_location(file_name, @$)));
+    }
+    ;
 
-assignStmt: identsym becomessym expr {
-    $$ = ast_stmt_assign($1, $3); 
-} ;
+stmtList:
+    stmtList semisym stmt
+    {
+        $$ = ast_stmt_list($1, $3);
+    }
+    | stmt
+    {
+        $$ = ast_stmt_list_singleton($1);
+    }
+    ;
 
-callStmt: callsym identsym {
-    $$ = ast_stmt_call($2); 
-} ;
+stmt:
+    assignStmt
+    {
+        $$ = ast_stmt_assign($1);
+    }
+    | callStmt
+    {
+        $$ = ast_stmt_call($1);
+    }
+    | blockStmt
+    {
+        $$ = ast_stmt_block($1);
+    }
+    | ifStmt
+    {
+        $$ = ast_stmt_if($1);
+    }
+    | whileStmt
+    {
+        $$ = ast_stmt_while($1);
+    }
+    | readStmt
+    {
+        $$ = ast_stmt_read($1);
+    }
+    | printStmt
+    {
+        $$ = ast_stmt_print($1);
+    }
+    ;
 
-ifStmt: ifsym condition thensym stmts elsesym stmts endsym {
-    $$ = ast_if_then_else_stmt($2, $4, $6); 
-}
-| ifsym condition thensym stmts endsym {
-    $$ = ast_if_then_else_stmt($2, $4, NULL); 
-} ;
+assignStmt:
+    identsym becomessym expr
+    {
+        $$ = ast_assign_stmt($1, $3);
+    }
+    ;
 
-whileStmt: whilesym condition dosym stmts endsym {
-    $$ = ast_while_stmt($2, $4); 
-} ;
+callStmt:
+    callsym identsym
+    {
+        $$ = ast_call_stmt($2);
+    }
+    ;
 
-readStmt: readsym identsym {
-    $$ = ast_read_stmt($2); 
-} ;
+blockStmt:
+    block
+    {
+        $$ = ast_block_stmt($1);
+    }
+    ;
 
-printStmt: printsym expr {
-    $$ = ast_print_stmt($2); 
-} ;
+ifStmt:
+    ifsym condition thensym stmts elsesym stmts endsym
+    {
+        $$ = ast_if_then_else_stmt($2, $4, $6);
+    }
+    | ifsym condition thensym stmts endsym
+    {
+        $$ = ast_if_then_stmt($2, $4);
+    }
+    ;
 
-blockStmt: block {
-    $$ = $1; 
-} ;
+whileStmt:
+    whilesym condition dosym stmts endsym
+    {
+        $$ = ast_while_stmt($2, $4);
+    }
+    ;
 
-condition: dbCondition
-| relOpCondition ;
+readStmt:
+    readsym identsym
+    {
+        $$ = ast_read_stmt($2);
+    }
+    ;
 
-dbCondition: divisiblesym expr bysym expr {
-    $$ = ast_db_condition($2, $4); 
-} ;
+printStmt:
+    printsym expr
+    {
+        $$ = ast_print_stmt($2);
+    }
+    ;
 
-relOpCondition: expr relOp expr {
-    $$ = ast_rel_op_condition($1, $2, $3); 
-} ;
+condition:
+    divisiblesym expr bysym expr
+    {
+        $$ = ast_condition_db(ast_db_condition($2, $4));
+    }
+    | expr relOp expr
+    {
+        $$ = ast_condition_rel_op(ast_rel_op_condition($1, $2, $3));
+    }
+    ;
 
-relOp: eqeqsym
-| neqsym
-| ltsym
-| leqsym
-| gtsym
-| geqsym ;
+relOp:
+    eqeqsym
+    {
+        $$ = $1;
+    }
+    | eqsym
+    {
+        $$ = $1;
+    }
+    | neqsym
+    {
+        $$ = $1;
+    }
+    | ltsym
+    {
+        $$ = $1;
+    }
+    | leqsym
+    {
+        $$ = $1;
+    }
+    | gtsym
+    {
+        $$ = $1;
+    }
+    | geqsym
+    {
+        $$ = $1;
+    }
+    ;
 
-expr: term
-| expr plussym term {
-    $$ = create_bin_op($1, "+", $3); 
-}
-| expr minussym term {
-    $$ = create_bin_op($1, "-", $3); 
-} ;
+expr:
+    expr plussym term
+    {
+        $$ = ast_expr_binary_op(ast_binary_op_expr($1, $2, $3));
+    }
+    | expr minussym term
+    {
+        $$ = ast_expr_binary_op(ast_binary_op_expr($1, $2, $3));
+    }
+    | term
+    {
+        $$ = $1;
+    }
+    ;
 
-term: factor
-| term multsym factor {
-    $$ = create_bin_op($1, "*", $3); 
-}
-| term divsym factor {
-    $$ = create_bin_op($1, "/", $3); 
-} ;
+term:
+    term multsym factor
+    {
+        $$ = ast_expr_binary_op(ast_binary_op_expr($1, $2, $3));
+    }
+    | term divsym factor
+    {
+        $$ = ast_expr_binary_op(ast_binary_op_expr($1, $2, $3));
+    }
+    | factor
+    {
+        $$ = $1;
+    }
+    ;
 
-factor: identsym {
-    $$ = ast_expr_ident($1); 
-}
-| numbersym {
-    $$ = ast_expr_number($1); 
-}
-| lparensym expr rparensym {
-    $$ = $2; 
-} ;
+factor:
+    identsym
+    {
+        $$ = ast_expr_ident($1);
+    }
+    | numbersym
+    {
+        $$ = ast_expr_number($1);
+    }
+    | lparensym expr rparensym
+    {
+        $$ = $2;
+    }
+    | minussym factor
+    {
+        $$ = ast_expr_signed_expr($1, $2);
+    }
+    ;
 
 %%
 
-// Set the program's ast to be ast
+/* User code section */
+
 void setProgAST(block_t ast) { progast = ast; }
-
