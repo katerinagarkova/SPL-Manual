@@ -1,28 +1,19 @@
 #include "scope.h"
+#include "symtab.h"
 
-Scope *create_scope() {
-    Scope *scope = malloc(sizeof(Scope));
-    scope->symbols = NULL;
-    scope->symbol_count = 0;
-    return scope;
+// Since scope functions are essentially wrappers around symbol table scope functions
+void scope_initialize(void) {
+    symtab_initialize();
 }
 
-void add_symbol(Scope *scope, char *name, char *type, int line) {
-    // Add a new symbol with attributes
-    Symbol *symbol = malloc(sizeof(Symbol));
-    symbol->name = strdup(name);
-    symbol->type = strdup(type);
-    symbol->declared_line = line;
-
-    scope->symbols = realloc(scope->symbols, sizeof(Symbol *) * (scope->symbol_count + 1));
-    scope->symbols[scope->symbol_count++] = symbol;
+void scope_finalize(void) {
+    symtab_finalize();
 }
 
-Symbol *find_symbol(Scope *scope, char *name) {
-    for (int i = 0; i < scope->symbol_count; i++) {
-        if (strcmp(scope->symbols[i]->name, name) == 0) {
-            return scope->symbols[i];
-        }
-    }
-    return NULL;
+void scope_enter(void) {
+    symtab_enter_scope();
+}
+
+void scope_exit(void) {
+    symtab_exit_scope();
 }

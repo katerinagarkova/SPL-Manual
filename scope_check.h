@@ -1,25 +1,27 @@
 #ifndef SCOPE_CHECK_H
 #define SCOPE_CHECK_H
 
-#include "ast.h"          // Include your AST definitions
-#include "symtab.h" // Include your symbol table definitions
+#include "ast.h"
 
-// Function to check declarations in the given AST
-void check_declarations(AST ast);
+void scope_check_program(block_t program);
+void scope_check_block(block_t *block);
+void scope_check_const_decls(const_decls_t *decls);
+void scope_check_const_decl(const_decl_t *decl);
+void scope_check_const_def(const_def_t *def);
+void scope_check_var_decls(var_decls_t *decls);
+void scope_check_var_decl(var_decl_t *decl);
+void scope_check_proc_decls(proc_decls_t *decls);
+void scope_check_proc_decl(proc_decl_t *decl);
+void scope_check_stmts(stmts_t *stmts);
+void scope_check_stmt(stmt_t *stmt);
+void scope_check_assign_stmt(assign_stmt_t *stmt);
+void scope_check_call_stmt(call_stmt_t *stmt);
+void scope_check_block_stmt(block_stmt_t *stmt);
+void scope_check_if_stmt(if_stmt_t *stmt);
+void scope_check_while_stmt(while_stmt_t *stmt);
+void scope_check_read_stmt(read_stmt_t *stmt);
+void scope_check_print_stmt(print_stmt_t *stmt);
+void scope_check_condition(condition_t *cond);
+void scope_check_expr(expr_t *expr);
 
-// Function to check declarations within a block
-void check_block(block_t *block, SymbolTable *symtab);
-
-// Function to check statements within a block
-void check_stmt(stmt_t *stmt, SymbolTable *symtab);
-
-// Function to check expressions
-void check_expr(expr_t *expr, SymbolTable *symtab);
-
-// Function to declare an identifier
-void declare_ident(const char *name, SymbolTable *symtab, file_location *loc);
-
-// Function to use an identifier
-void use_ident(const char *name, file_location *loc, SymbolTable *symtab);
-
-#endif 
+#endif // SCOPE_CHECK_H

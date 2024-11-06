@@ -12,9 +12,13 @@
 #include "parser_types.h"
 #include "lexer.h"
 #include "file_location.h"
+#include "symtab.h"
 
 /* Report an error to the user on stderr */
 extern void yyerror(const char *filename, const char *msg);
+
+/* Define yytokentype as int to match lexer.h */
+typedef int yytokentype;
 
 }    /* end of %code requires */
 
@@ -79,6 +83,7 @@ extern void yyerror(const char *filename, const char *msg);
 
 %type <proc_decls> procDecls
 %type <proc_decl> procDecl
+%type <ident> procHeader
 
 %type <stmts> stmts
 %type <stmt_list> stmtList
@@ -100,9 +105,12 @@ extern void yyerror(const char *filename, const char *msg);
 
 %start program
 
+%initial-action {
+    symtab_initialize();
+}
+
 %code {
 
-/* Extern declarations provided by the lexer */
 extern int yylex(void);
 
 /* The AST for the program, set by the semantic action 
@@ -110,12 +118,15 @@ extern int yylex(void);
 block_t progast; 
 
 /* Set the program's ast to be t */
-extern void setProgAST(block_t t);
+void setProgAST(block_t t);
 
 /* Helper function to create a file_location* from YYLTYPE */
 static file_location* make_file_location(const char *file_name, YYLTYPE loc) {
     return file_location_make(file_name, loc.first_line);
 }
+
+// /* Implementation of yyerror */
+// void yyerror(const char *filename, const char *msg);
 
 }
 
@@ -131,9 +142,14 @@ program:
     ;
 
 block:
-    beginsym constDecls varDecls procDecls stmts endsym
+    beginsym
     {
-        $$ = ast_block($1, $2, $3, $4, $5);
+        symtab_enter_scope();
+    }
+    constDecls varDecls procDecls stmts endsym
+    {
+        $$ = ast_block($1, $3, $4, $5, $6);
+        symtab_exit_scope();
     }
     ;
 
@@ -151,6 +167,7 @@ constDecls:
 constDecl:
     constsym constDefList semisym
     {
+        /* Declarations are handled during scope checking */
         $$ = ast_const_decl($2);
     }
     ;
@@ -214,9 +231,16 @@ procDecls:
     ;
 
 procDecl:
-    procsym identsym block semisym
+    procHeader block semisym
     {
-        $$ = ast_proc_decl($2, $3);
+        $$ = ast_proc_decl($1, $2);
+    }
+    ;
+
+procHeader:
+    procsym identsym
+    {
+        $$ = $2; // Store ident in $$ to pass it to procDecl
     }
     ;
 
@@ -421,4 +445,5 @@ factor:
 
 /* User code section */
 
-void setProgAST(block_t ast) { progast = ast; }
+/* Set the program's ast to be t */
+void setProgAST(block_t t) { progast = t; }

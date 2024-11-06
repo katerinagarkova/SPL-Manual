@@ -1,17 +1,9 @@
-#include <string.h>
-#include <stdlib.h>
+#ifndef SCOPE_H
+#define SCOPE_H
 
-typedef struct {
-    char *name;
-    char *type;
-    int declared_line;
-} Symbol;
+void scope_initialize(void); // May not be needed if using symtab_initialize()
+void scope_finalize(void);   // May not be needed if using symtab_finalize()
+void scope_enter(void);
+void scope_exit(void);
 
-typedef struct {
-    Symbol **symbols;  // Array of symbol pointers
-    int symbol_count;
-} Scope;
-
-Scope *create_scope();
-void add_symbol(Scope *scope, char *name, char *type, int line);
-Symbol *find_symbol(Scope *scope, char *name);
+#endif // SCOPE_H

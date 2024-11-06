@@ -1,151 +1,394 @@
+#include "scope_check.h"
+#include "symtab.h"
+#include "ast.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include "ast.h" // Include the AST definitions
-#include "symtab.h" // Assume you have a symbol table implementation
 
-// Function prototypes
-void check_declarations(AST ast);
-void check_block(block_t *block, SymbolTable *symtab);
-void check_stmt(stmt_t *stmt, SymbolTable *symtab);
-void check_expr(expr_t *expr, SymbolTable *symtab);
-void declare_ident(const char *name, SymbolTable *symtab, file_location *loc);
-void use_ident(const char *name, file_location *loc, SymbolTable *symtab);
+static int has_error = 0;
 
-// The main function to start the declaration checking
-void check_declarations(AST ast) {
-    // Create a new symbol table for the program
-    SymbolTable *symtab = create_symtab();
+void scope_check_program(block_t program) {
+    /* Initialize the symbol table */
+    symtab_initialize();
 
-    // Check the block in the AST
-    if (ast.generic.type_tag == block_ast) {
-        check_block(&ast.block, symtab);
+    /* Reset the error flag */
+    has_error = 0;
+
+    /* Start scope checking from the program's block */
+    scope_check_block(&program);
+
+    /* Finalize the symbol table */
+    symtab_finalize();
+}
+
+void scope_check_block(block_t *block) {
+    if (has_error) return;
+    if (block == NULL) return;
+
+    /* Enter a new scope */
+    symtab_enter_scope();
+
+    /* Check declarations */
+    scope_check_const_decls(&block->const_decls);
+    if (has_error) return;
+    scope_check_var_decls(&block->var_decls);
+    if (has_error) return;
+    scope_check_proc_decls(&block->proc_decls);
+    if (has_error) return;
+
+    /* Check statements */
+    scope_check_stmts(&block->stmts);
+
+    /* Exit the scope */
+    symtab_exit_scope();
+}
+
+void scope_check_const_decls(const_decls_t *decls) {
+    if (has_error) return;
+    if (decls == NULL || decls->start == NULL) return;
+
+    const_decl_t *current_decl = decls->start;
+    while (current_decl != NULL) {
+        scope_check_const_decl(current_decl);
+        if (has_error) return;
+        current_decl = current_decl->next;
+    }
+}
+
+void scope_check_const_decl(const_decl_t *decl) {
+    if (has_error) return;
+    if (decl == NULL) return;
+
+    const_def_list_t *def_list = &decl->const_def_list;
+    const_def_t *def = def_list->start;
+    while (def != NULL) {
+        scope_check_const_def(def);
+        if (has_error) return;
+        def = def->next;
+    }
+}
+
+void scope_check_const_def(const_def_t *def) {
+    if (has_error) return;
+    if (def == NULL) return;
+
+    ident_t *ident = &def->ident;
+    number_t *number = &def->number;
+
+    /* Check for duplicate declarations */
+    sym_entry_t *entry = symtab_lookup_current_scope(ident->name);
+    if (entry != NULL) {
+        if (!has_error) {
+            printf("%s: line %u constant \"%s\" is already declared as a %s\n",
+                   ident->file_loc->filename, ident->file_loc->line, ident->name,
+                   entry->kind == SYM_CONST ? "constant" :
+                   entry->kind == SYM_VAR ? "variable" : "procedure");
+            has_error = 1;
+            return;
+        }
     } else {
-        fprintf(stderr, "Error: AST root is not a block\n");
+        symtab_insert(ident->name, SYM_CONST, number->value, ident->file_loc);
     }
-
-    // Free the symbol table
-    free_symtab(symtab);
 }
 
-// Function to check declarations in a block
-void check_block(block_t *block, SymbolTable *symtab) {
-    // Check constant declarations
-    for (const_decl_t *const_decl = block->const_decls.start; const_decl != NULL; const_decl = const_decl->next) {
-        // Check each constant definition
-        for (const_def_t *const_def = const_decl->const_def_list.start; const_def != NULL; const_def = const_def->next) {
-            declare_ident(const_def->ident.name, symtab, const_def->file_loc);
+void scope_check_var_decls(var_decls_t *decls) {
+    if (has_error) return;
+    if (decls == NULL || decls->var_decls == NULL) return;
+
+    var_decl_t *current_decl = decls->var_decls;
+    while (current_decl != NULL) {
+        scope_check_var_decl(current_decl);
+        if (has_error) return;
+        current_decl = current_decl->next;
+    }
+}
+
+void scope_check_var_decl(var_decl_t *decl) {
+    if (has_error) return;
+    if (decl == NULL) return;
+
+    ident_list_t *idents = &decl->ident_list;
+    ident_t *ident = idents->start;
+    while (ident != NULL) {
+        /* Check for duplicate declarations */
+        sym_entry_t *entry = symtab_lookup_current_scope(ident->name);
+        if (entry != NULL) {
+            if (!has_error) {
+                printf("%s: line %u variable \"%s\" is already declared as a %s\n",
+                       ident->file_loc->filename, ident->file_loc->line, ident->name,
+                       entry->kind == SYM_CONST ? "constant" :
+                       entry->kind == SYM_VAR ? "variable" : "procedure");
+                has_error = 1;
+                return;
+            }
+        } else {
+            symtab_insert(ident->name, SYM_VAR, 0, ident->file_loc);
         }
+        ident = ident->next;
     }
-
-    // Check variable declarations
-    for (var_decl_t *var_decl = block->var_decls.var_decls; var_decl != NULL; var_decl = var_decl->next) {
-        declare_ident(var_decl->ident_list.start->name, symtab, var_decl->file_loc); // Assumes first ident is representative
-    }
-
-    // Check procedure declarations
-    for (proc_decl_t *proc_decl = block->proc_decls.proc_decls; proc_decl != NULL; proc_decl = proc_decl->next) {
-        declare_ident(proc_decl->name, symtab, proc_decl->file_loc);
-    }
-
-    // Check statements in the block
-    check_stmt(block->stmts.file_loc, symtab);
 }
 
-// Function to check statements
-void check_stmt(stmt_t *stmt, SymbolTable *symtab) {
+void scope_check_proc_decls(proc_decls_t *decls) {
+    if (has_error) return;
+    if (decls == NULL || decls->proc_decls == NULL) return;
+
+    proc_decl_t *current_decl = decls->proc_decls;
+    while (current_decl != NULL) {
+        scope_check_proc_decl(current_decl);
+        if (has_error) return;
+        current_decl = current_decl->next;
+    }
+}
+
+void scope_check_proc_decl(proc_decl_t *decl) {
+    if (has_error) return;
+    if (decl == NULL) return;
+
+    const char *name = decl->name;
+    file_location *file_loc = decl->file_loc;
+
+    /* Check for duplicate declarations */
+    sym_entry_t *entry = symtab_lookup_current_scope(name);
+    if (entry != NULL) {
+        if (!has_error) {
+            printf("%s: line %u procedure \"%s\" is already declared as a %s\n",
+                   file_loc->filename, file_loc->line, name,
+                   entry->kind == SYM_CONST ? "constant" :
+                   entry->kind == SYM_VAR ? "variable" : "procedure");
+            has_error = 1;
+            return;
+        }
+    } else {
+        symtab_insert(name, SYM_PROC, 0, file_loc);
+    }
+
+    /* Check the block within the procedure */
+    scope_check_block(decl->block);
+}
+
+void scope_check_stmts(stmts_t *stmts) {
+    if (has_error) return;
+    if (stmts == NULL) return;
+
+    if (stmts->stmts_kind == empty_stmts_e) {
+        return;
+    }
+
+    stmt_t *stmt = stmts->stmt_list.start;
     while (stmt != NULL) {
-        switch (stmt->stmt_kind) {
-            case assign_stmt:
-                // Check the assignment statement
-                use_ident(stmt->data.assign_stmt.name, stmt->file_loc, symtab);
-                check_expr(stmt->data.assign_stmt.expr, symtab);
-                break;
-
-            case call_stmt:
-                // Check the procedure call statement
-                use_ident(stmt->data.call_stmt.name, stmt->file_loc, symtab);
-                break;
-
-            case if_stmt:
-                // Check the condition and then statements
-                check_expr(stmt->data.if_stmt.condition.expr, symtab);
-                check_stmt(stmt->data.if_stmt.then_stmts->file_loc, symtab);
-                if (stmt->data.if_stmt.else_stmts) {
-                    check_stmt(stmt->data.if_stmt.else_stmts->file_loc, symtab);
-                }
-                break;
-
-            case while_stmt:
-                // Check the condition and body
-                check_expr(stmt->data.while_stmt.condition.expr, symtab);
-                check_stmt(stmt->data.while_stmt.body->file_loc, symtab);
-                break;
-
-            case read_stmt:
-                // Check the read statement
-                use_ident(stmt->data.read_stmt.name, stmt->file_loc, symtab);
-                break;
-
-            case print_stmt:
-                // Check the print statement
-                check_expr(&stmt->data.print_stmt.expr, symtab);
-                break;
-
-            case block_stmt:
-                // Check nested blocks
-                check_block(stmt->data.block_stmt.block, symtab);
-                break;
-
-            default:
-                fprintf(stderr, "Error: Unknown statement type\n");
-                break;
-        }
+        scope_check_stmt(stmt);
+        if (has_error) break;  // Stop checking further statements after an error
         stmt = stmt->next;
     }
 }
 
-// Function to check expressions
-void check_expr(expr_t *expr, SymbolTable *symtab) {
-    switch (expr->expr_kind) {
-        case expr_bin:
-            // Check binary expressions
-            check_expr(expr->data.binary.expr1, symtab);
-            check_expr(expr->data.binary.expr2, symtab);
-            break;
+void scope_check_stmt(stmt_t *stmt) {
+    if (has_error) return;
+    if (stmt == NULL) return;
 
-        case expr_negated:
-            // Check negated expressions
-            check_expr(expr->data.negated.expr, symtab);
+    switch (stmt->stmt_kind) {
+        case assign_stmt:
+            scope_check_assign_stmt(&stmt->data.assign_stmt);
             break;
-
-        case expr_ident:
-            // Check the identifier expression
-            use_ident(expr->data.ident.name, expr->file_loc, symtab);
+        case call_stmt:
+            scope_check_call_stmt(&stmt->data.call_stmt);
             break;
-
-        case expr_number:
-            // Numbers do not need checks
+        case block_stmt:
+            scope_check_block_stmt(&stmt->data.block_stmt);
             break;
-
+        case if_stmt:
+            scope_check_if_stmt(&stmt->data.if_stmt);
+            break;
+        case while_stmt:
+            scope_check_while_stmt(&stmt->data.while_stmt);
+            break;
+        case read_stmt:
+            scope_check_read_stmt(&stmt->data.read_stmt);
+            break;
+        case print_stmt:
+            scope_check_print_stmt(&stmt->data.print_stmt);
+            break;
         default:
-            fprintf(stderr, "Error: Unknown expression type\n");
+            if (!has_error) {
+                printf("Unknown statement kind.\n");
+                has_error = 1;
+            }
             break;
     }
 }
 
-// Function to declare an identifier
-void declare_ident(const char *name, SymbolTable *symtab, file_location *loc) {
-    if (declare_symbol(symtab, name)) {
-        printf("Declared identifier '%s' at %s:%u\n", name, loc->filename, loc->line);
+void scope_check_assign_stmt(assign_stmt_t *stmt) {
+    if (has_error) return;
+    if (stmt == NULL) return;
+
+    const char *name = stmt->name;
+    file_location *file_loc = stmt->file_loc;
+
+    sym_entry_t *entry = symtab_lookup(name);
+    if (entry == NULL) {
+        if (!has_error) {
+            printf("%s: line %u identifier \"%s\" is not declared!\n",
+                   file_loc->filename, file_loc->line, name);
+            has_error = 1;
+            return;
+        }
+    }
+
+    /* If the identifier is a constant, silently ignore the assignment */
+    if (entry->kind == SYM_CONST) {
+        /* Assignment to a constant is ignored?; no error is reported */
+        scope_check_expr(stmt->expr);
+    } else if (entry->kind == SYM_VAR) {
+        /* For variables, proceed to check the expression */
+        scope_check_expr(stmt->expr);
     } else {
-        fprintf(stderr, "Error: Duplicate declaration of identifier '%s' at %s:%u\n", name, loc->filename, loc->line);
+        /* Handle other kinds if necessary */
+        if (!has_error) {
+            printf("%s: line %u \"%s\" has an unsupported kind.\n",
+                   file_loc->filename, file_loc->line, name);
+            has_error = 1;
+            return;
+        }
     }
 }
-//declare_symbol(SymbolTable *symtab, char *name, char *type, int line)
-// Function to use an identifier
-void use_ident(const char *name, file_location *loc, SymbolTable *symtab) {
-    if (!lookup(symtab, name)) {
-        fprintf(stderr, "Error: Undefined identifier '%s' used at %s:%u\n", name, loc->filename, loc->line);
+
+void scope_check_call_stmt(call_stmt_t *stmt) {
+    if (has_error) return;
+    if (stmt == NULL) return;
+
+    const char *name = stmt->name;
+    file_location *file_loc = stmt->file_loc;
+
+    sym_entry_t *entry = symtab_lookup(name);
+    if (entry == NULL) {
+        if (!has_error) {
+            printf("%s: line %u procedure \"%s\" is not declared!\n",
+                   file_loc->filename, file_loc->line, name);
+            has_error = 1;
+            return;
+        }
+    } else if (entry->kind != SYM_PROC) {
+        if (!has_error) {
+            printf("%s: line %u \"%s\" is not a procedure\n",
+                   file_loc->filename, file_loc->line, name);
+            has_error = 1;
+            return;
+        }
+    }
+}
+
+void scope_check_block_stmt(block_stmt_t *stmt) {
+    if (has_error) return;
+    if (stmt == NULL) return;
+
+    scope_check_block(stmt->block);
+}
+
+void scope_check_if_stmt(if_stmt_t *stmt) {
+    if (has_error) return;
+    if (stmt == NULL) return;
+
+    scope_check_condition(&stmt->condition);
+    scope_check_stmts(stmt->then_stmts);
+    if (stmt->else_stmts != NULL && stmt->else_stmts->stmts_kind != empty_stmts_e) {
+        scope_check_stmts(stmt->else_stmts);
+    }
+}
+
+void scope_check_while_stmt(while_stmt_t *stmt) {
+    if (has_error) return;
+    if (stmt == NULL) return;
+
+    scope_check_condition(&stmt->condition);
+    scope_check_stmts(stmt->body);
+}
+
+void scope_check_read_stmt(read_stmt_t *stmt) {
+    if (has_error) return;
+    if (stmt == NULL) return;
+
+    const char *name = stmt->name;
+    file_location *file_loc = stmt->file_loc;
+
+    sym_entry_t *entry = symtab_lookup(name);
+    if (entry == NULL) {
+        if (!has_error) {
+            printf("%s: line %u identifier \"%s\" is not declared!\n",
+                   file_loc->filename, file_loc->line, name);
+            has_error = 1;
+            return;
+        }
+    } else if (entry->kind != SYM_VAR) {
+        if (!has_error) {
+            printf("%s: line %u \"%s\" is not a variable\n",
+                   file_loc->filename, file_loc->line, name);
+            has_error = 1;
+            return;
+        }
+    }
+}
+
+void scope_check_print_stmt(print_stmt_t *stmt) {
+    if (has_error) return;
+    if (stmt == NULL) return;
+
+    scope_check_expr(&stmt->expr);
+}
+
+void scope_check_condition(condition_t *cond) {
+    if (has_error) return;
+    if (cond == NULL) return;
+
+    switch (cond->cond_kind) {
+        case ck_rel:
+            scope_check_expr(&cond->data.rel_op_cond.expr1);
+            scope_check_expr(&cond->data.rel_op_cond.expr2);
+            break;
+        case ck_db:
+            scope_check_expr(&cond->data.db_cond.dividend);
+            scope_check_expr(&cond->data.db_cond.divisor);
+            break;
+        default:
+            if (!has_error) {
+                printf("Unknown condition kind.\n");
+                has_error = 1;
+            }
+            break;
+    }
+}
+
+void scope_check_expr(expr_t *expr) {
+    if (has_error) return;
+    if (expr == NULL) return;
+
+    switch (expr->expr_kind) {
+        case expr_ident: {
+            ident_t *ident = &expr->data.ident;
+            sym_entry_t *entry = symtab_lookup(ident->name);
+            if (entry == NULL) {
+                if (!has_error) {
+                    printf("%s: line %u identifier \"%s\" is not declared!\n",
+                           ident->file_loc->filename, ident->file_loc->line, ident->name);
+                    has_error = 1;
+                }
+            }
+            break;
+        }
+        case expr_number:
+            /* Nothing to check */
+            break;
+        case expr_bin:
+            scope_check_expr(expr->data.binary.expr1);
+            if (has_error) return;
+            scope_check_expr(expr->data.binary.expr2);
+            break;
+        case expr_negated:
+            scope_check_expr(expr->data.negated.expr);
+            break;
+        default:
+            if (!has_error) {
+                printf("Unknown expression kind.\n");
+                has_error = 1;
+            }
+            break;
     }
 }
